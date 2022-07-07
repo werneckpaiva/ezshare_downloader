@@ -5,6 +5,7 @@ import sys
 import threading
 import queue
 from typing import Final, List, Tuple
+import tempfile
 
 LINKS_PATTERN = re.compile("<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>")
 def extract_anchors(content:str) ->List[Tuple[str, str]]:
@@ -32,20 +33,20 @@ def download_media(url:str, media_name:str, destination_folder:str, download_sta
     r = requests.get(url, stream=True)
     total_length = r.headers.get('content-length')
     media_path = os.path.join(destination_folder, media_name)
-    with open(media_path, "wb") as f:
+    # Use temp file to guarantee the file is copied up to the end, when moved to final destination
+    with tempfile.NamedTemporaryFile() as temp_fp:
         if total_length is None: # no content length header
-            f.write(r.content)
+            temp_fp.write(r.content)
         else:
             total_length = int(total_length)
             dl = 0
             for chunk in r.iter_content(1024):
                 dl += len(chunk)
-                f.write(chunk)
+                temp_fp.write(chunk)
                 downloaded_perc = (dl / total_length) * 100
                 download_state.put((downloaded_perc, media_name))
-
-                # print("\rDownloading %s [%.2f%%]" % (media_name, downloaded_perc), end="")
-
+        with open(media_path, "wb") as dest_fp:
+            dest_fp.write(temp_fp.read())
 
 def media_downloader_thread(medias_to_download:queue.Queue, destination_folder:str, download_state:queue.Queue) -> None:
     while not medias_to_download.empty():
