@@ -6,6 +6,7 @@ import threading
 import queue
 from typing import Final, List, Tuple
 import tempfile
+import time
 
 LINKS_PATTERN = re.compile("<a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a>")
 def extract_anchors(content:str) ->List[Tuple[str, str]]:
@@ -46,6 +47,7 @@ def download_media(url:str, media_name:str, destination_folder:str, download_sta
                 downloaded_perc = (dl / total_length) * 100
                 download_state.put((downloaded_perc, media_name))
         with open(media_path, "wb") as dest_fp:
+            temp_fp.seek(0)
             dest_fp.write(temp_fp.read())
 
 def media_downloader_thread(medias_to_download:queue.Queue, destination_folder:str, download_state:queue.Queue) -> None:
@@ -59,6 +61,9 @@ def print_download_state_thread(medias_to_download:List[Tuple[str, str]], downlo
     medias_downloaded = set()
     current_medias = {}
     max_str_len = 0
+    start_time = time.time()
+    sec_per_photo = 0
+    remaining_time_str = ""
     while medias_downloaded != all_medias:
         perc, media_name = download_state.get()
         if perc < 100:
@@ -66,11 +71,16 @@ def print_download_state_thread(medias_to_download:List[Tuple[str, str]], downlo
             current_medias_str = " ".join(f"{n}[{p:02.0f}%]" for n, p in current_medias.items())
             max_str_len = max(max_str_len, len(current_medias_str))
             qnt_remaining = len(all_medias) - len(medias_downloaded)
-            print(f"\rDownloading {len(current_medias)}/{qnt_remaining}: {current_medias_str} {' ' * (max_str_len - len(current_medias_str))}", end="")
+            if sec_per_photo > 0:
+                remaining_time = (qnt_remaining * sec_per_photo) / 60.0
+                remaining_time_str = f"ETA: {remaining_time:.1f} min"
+            print(f"\rDownloading {len(current_medias)}/{qnt_remaining}: {current_medias_str} {remaining_time_str}{' ' * (max_str_len - len(current_medias_str))}", end="")
         else:
             current_medias.pop(media_name)
             medias_downloaded.add(media_name)
-            print(f"\rDownloaded {media_name} {' ' * max_str_len}")
+            remaining_time_str = ""
+            sec_per_photo = (time.time() - start_time) / float(len(medias_downloaded))
+            print(f"\rDownloaded {media_name} {' ' * (max_str_len + 20)} ")
 
 def parallel_dowload(medias_to_download:List[Tuple[str, str]], destination_folder:str) -> None:
     if len(medias_to_download) == 0:
